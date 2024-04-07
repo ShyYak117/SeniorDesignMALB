@@ -8,7 +8,6 @@
 
 #include <Wire.h>
 #include <MPU6050.h>
-#include <MPU6050.h>
 #include <ResponsiveAnalogRead.h>
 
 
@@ -22,6 +21,8 @@ const int FBA = A0;
 ResponsiveAnalogRead analog(FBA, true);
 // Timers
 unsigned long timer = 0;
+unsigned long prev_timer = 0;
+unsigned long prev_timer1 = 0;
 float timeStep = 0.01;
 
 // Pitch, Roll and Yaw values
@@ -33,7 +34,7 @@ int command_location = 120;                                   // Commanded posit
 int actual_location = 0;                                      // Current position
 int deadband =  3;  
 int pot_read = 0;
-
+Vector norm;
 
 void setup() 
 {
@@ -59,23 +60,26 @@ void setup()
   // pinMode(FBA, INPUT);
   analogWrite(RPWM,0);
   analogWrite(LPWM,0);
+  // pos(25);
 }
 
 void loop()
 {
-  analog.update();
-  pot_read = analog.getValue();                  //read the actual position from the actuator potentiometer
-  actual_location = map(pot_read, POTENTIOMETER_MIN, POTENTIOMETER_MAX, 0, STROKE_LENGTH);  //map(value, fromLow, fromHigh, toLow, toHigh)
+  // analog.update();
+  // pot_read = analog.getValue();                  //read the actual position from the actuator potentiometer
+  // actual_location = map(pot_read, POTENTIOMETER_MIN, POTENTIOMETER_MAX, 0, STROKE_LENGTH);  //map(value, fromLow, fromHigh, toLow, toHigh)
   timer = millis();
 
   // Read normalized values
-  // Vector norm = mpu.readNormalizeGyro();
+  Vector norm = mpu.readNormalizeGyro();
   // Calculate Pitch, Roll and Yaw
-  // pitch = pitch + norm.YAxis * timeStep;
-  // roll = norm.YAxis * timeStep;
-  // yaw = norm.YAxis;
+  pitch = pitch + norm.YAxis * timeStep;
+  roll = norm.YAxis * timeStep;
+  yaw = norm.YAxis;
 
   angle();
+  control();
+
   // Output raw
   Serial.print(" Pitch = ");
   Serial.print(pitch);
@@ -89,49 +93,57 @@ void loop()
   // Serial.println(actual_location);
 
   // Wait to full timeStep period
-  delay((timeStep*1000) - (millis() - timer));
+  // delay((timeStep*1000) - (millis() - timer));
   
   // analog.update();
   // pot_read = analog.getValue();                  //read the actual position from the actuator potentiometer
   // actual_location = map(pot_read, POTENTIOMETER_MIN, POTENTIOMETER_MAX, 0, STROKE_LENGTH);  //map(value, fromLow, fromHigh, toLow, toHigh)
-  control();
     
   if ((roll == 0) && (yaw == 0) && (pitch != 0) && (pitch <= 10) && (pitch >= -10)) {
     pitch = 0;
   }
 
-  if (pitch >= 30){
-  pos(50);
-  delay(2000); 
-  pos(0); 
-  pitch = 0;
+  if (pitch >= 30){ // condition to move leg down
+  pos(50); // extend act ie push leg down
+  if (timer - prev_timer >= 2000) { // 2 s delay time to move leg up
+    pos(0); // retract actuator
+    prev_timer = prev_timer+2000; // update previous timer + 2s
   }
-  // delay(10);
-
+  // pitch = 0;
+  }
 }
 
-// void stuff(int angle){
-  
-// }
+
 
 void pos(int command){
   control();
-  if ((actual_location <= command + deadband) && (actual_location >= command - deadband)){      //if actual is close to commanded position, do nothing
+  angle();
+  if (timer - prev_timer1 >= 50) {
+    if ((actual_location <= command + deadband) && (actual_location >= command - deadband)){      //if actual is close to commanded position, do nothing
       analogWrite(RPWM, 0);
       analogWrite(LPWM, 0);
+      control();
     }
 
     if (actual_location > command + deadband){         //if too far out, retract
       analogWrite(RPWM, 255);
       analogWrite(LPWM, 0);
+      control();
     }
 
     if (actual_location < command - deadband){         //if too far in, extend
       analogWrite(RPWM, 0);
       analogWrite(LPWM, 255);
+      control();
     }
-  angle();
-  delay(50);
+    prev_timer1 = timer;
+    control();
+  }
+  else {
+    if (timer - prev_timer1 >= 50) {
+       prev_timer1 += 50;
+    }  
+}
 }
 
 void control()
@@ -143,7 +155,7 @@ void control()
 }
 
 void angle(){
-  Vector norm = mpu.readNormalizeGyro();
+  norm = mpu.readNormalizeGyro();
   pitch = pitch + norm.YAxis * timeStep;
   roll = norm.YAxis * timeStep;
   yaw = norm.YAxis;
